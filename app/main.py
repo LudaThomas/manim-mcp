@@ -1,9 +1,7 @@
 import os
 import sys
-import json
 import stat
 import datetime
-import mimetypes
 import subprocess
 import uuid
 import logging

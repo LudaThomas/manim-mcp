@@ -1,54 +1,45 @@
 FROM ubuntu:22.04
 
-# Set environment variables to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Install required dependencies
-RUN apt-get update && apt-get install -y \
+# Install build deps, runtime deps, and LaTeX in one layer
+# Build-only packages are removed after pip install to reduce image size
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Build dependencies (removed after pip install)
     build-essential \
-    python3 \
     python3-dev \
-    python3-pip \
     pkg-config \
+    meson \
+    ninja-build \
+    # Runtime dependencies
+    python3 \
+    python3-pip \
     libcairo2-dev \
     libpango1.0-dev \
     ffmpeg \
-    curl \
-    git \
-    meson \
-    ninja-build \
-    python3-setuptools \
-    python3-wheel \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install minimal LaTeX packages instead of texlive-full
-RUN apt-get update && apt-get install -y \
+    # LaTeX packages for mathematical typesetting
     texlive-latex-base \
     texlive-latex-extra \
     texlive-fonts-recommended \
     texlive-fonts-extra \
     texlive-science \
     texlive-xetex \
+    && pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir pycairo manim "mcp[cli]" \
+    && python3 -c "import manim; print(f'Manim {manim.__version__} installed successfully')" \
+    # Remove build-only packages
+    && apt-get purge -y --auto-remove \
+        build-essential \
+        python3-dev \
+        pkg-config \
+        meson \
+        ninja-build \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /root/.cache
 
-# Create working directory
 WORKDIR /manim
 
-# Install Manim directly with pip instead of using UV
-RUN pip install --upgrade pip \
-    && pip install wheel setuptools \
-    && pip install pycairo \
-    && pip install manim \
-    && python3 -c "import manim; print(f'Manim {manim.__version__} installed successfully')"
-
-# Install MCP SDK for stdio-based MCP server
-RUN pip install "mcp[cli]"
-
-# Copy the application
 COPY ./app /manim/app
 
-# Run the MCP server via stdio
-ENTRYPOINT ["python3", "/manim/app/main.py"] 
+ENTRYPOINT ["python3", "/manim/app/main.py"]

@@ -3,79 +3,108 @@
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![Docker](https://img.shields.io/badge/Docker-Ready-blue)
 ![Manim](https://img.shields.io/badge/Manim-Animation-green)
-![API](https://img.shields.io/badge/FastAPI-REST-teal)
+![MCP](https://img.shields.io/badge/MCP-stdio-teal)
 
-A Docker-based environment for creating mathematical animations with [Manim](https://www.manim.community/), featuring both a CLI interface and a web API with Model Context Protocol (MCP) support for AI assistants.
+A self-labeling stdio MCP server Docker image for creating mathematical animations with [Manim](https://www.manim.community/). Designed for use with Docker MCP toolkit catalogs and profiles.
 
-## 📑 Overview
+## Overview
 
 This project provides:
 
-1. **Containerized Manim Environment**: Run Manim in an isolated, reproducible Docker environment
-2. **Web API**: Create and manage Manim animations via HTTP requests
-3. **MCP Integration**: Direct interaction with AI assistants like Claude
-4. **File Management**: Upload scripts and download generated animations
+1. **Containerized Manim Environment**: Run Manim in an isolated, reproducible Docker container
+2. **MCP Integration**: AI assistants like Claude interact directly via the Model Context Protocol (stdio transport)
+3. **File Management**: Create, read, and manage animation scripts and rendered output inside the container
+4. **Docker MCP Toolkit**: Self-labeling image with `io.docker.server.metadata` for catalog/profile integration
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose installed on your system
+- [Docker Desktop](https://docs.docker.com/get-docker/) with MCP Toolkit enabled
 
-### Installation
+### Step 1: Build the Docker Image
 
-#### Option 1: Use the Prebuilt Image (Recommended)
-
-Simply pull the prebuilt image from Docker Hub:
+Clone the repository and build the image with the embedded MCP metadata label:
 
 ```bash
-docker pull wstcpyt/manim-docker-mcp:latest
+git clone https://github.com/YOUR_USERNAME/manim-mcp.git
+cd manim-mcp
+docker build --label "io.docker.server.metadata=$(cat server-metadata.yaml)" -t manim-mcp:latest .
 ```
 
-Then run it with docker-compose:
+This builds the image and embeds the MCP server metadata from `server-metadata.yaml` as the `io.docker.server.metadata` Docker label. This label is what makes the image self-describing — the Docker MCP Toolkit can read it to discover the server's name, command, volumes, and configuration schema automatically.
+
+Alternatively, use the included build script:
 
 ```bash
-docker compose up -d
+./build.sh
 ```
 
-#### Option 2: Build Locally
+### Step 2: Create a Catalog Entry
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/manim-docker-mcp.git
-   cd manim-docker-mcp
-   ```
-
-2. Build the Docker images:
-   ```bash
-   docker compose build
-   ```
-
-### Usage
-
-#### CLI Mode
-
-Create a Python file in the `animations` directory (see example below), then run:
+Register the image as an MCP catalog so it can be discovered in Docker Desktop:
 
 ```bash
-docker compose run manim -pql animations/example.py ExampleScene
+mcp catalog create luda/manim:latest --title "Manim" --server docker://manim-mcp:latest
 ```
 
-#### API Mode
+This creates a catalog entry titled "Manim" that points to your locally built `manim-mcp:latest` image.
 
-Start the API server:
+### Step 3: Add the Catalog to a Profile
 
-```bash
-docker compose up -d manim-api
-```
+In Docker Desktop, navigate to **MCP Toolkit** in the sidebar, then open your profile. Click the **+** button in the **Servers** section to see available catalogs. You'll see your "Manim" catalog listed alongside any other catalogs you have configured.
 
-Access the API documentation at [http://localhost:8000/docs](http://localhost:8000/docs)
+![Adding the Manim catalog to a profile](images/AddCatalogToProfile.png)
 
-## 🎬 Creating Animations
+### Step 4: Add the Server to the Profile
 
-### Basic Example
+From the catalog list, select the Manim catalog. In the "Manage servers in your profile" dialog, you'll see `manim-mcp` available. Click the **+** button next to it to add it to your profile, then click **Save**.
 
-Create a file `animations/example.py`:
+![Adding manim-mcp server to the profile](images/AddServerToProfile.png)
+
+### Step 5: Configure the Server
+
+After adding the server, it will appear in your profile with a **CONFIGURATION REQUIRED** badge. Expand it to fill in the two required volume mount paths:
+
+- **manim-mcp.animations-dir** — Local directory containing your Manim animation scripts
+- **manim-mcp.output-dir** — Local directory where rendered animations will be saved
+
+Click **Save** to apply the configuration.
+
+![Configuring the manim-mcp server with local directory paths](images/ConfigureServer.png)
+
+The server is now ready to use. Any MCP client connected to this profile (e.g., Claude Desktop) will have access to the Manim tools.
+
+## MCP Tools
+
+The server exposes four tools over stdio:
+
+### `list_files`
+Browse the container filesystem. Supports recursive listing, hidden files, glob patterns, and depth control.
+
+### `write_file`
+Create or overwrite files in the container. Supports automatic parent directory creation.
+
+### `read_file`
+Read text file contents from the container.
+
+### `run_manim`
+Execute Manim to render a scene. Returns job ID, command output, and information about generated files.
+
+**Quality settings:**
+
+| Quality | Resolution | Frame Rate | Best For |
+|---------|------------|------------|----------|
+| `low_quality` | 480p | 15fps | Quick previews |
+| `medium_quality` | 720p | 30fps | General use |
+| `high_quality` | 1080p | 60fps | Presentations |
+| `production_quality` | 1440p | 60fps | Production videos |
+
+**Additional options:** transparent background, custom resolution/frame rate/color, save last frame only, animation range selection, and arbitrary extra Manim CLI flags.
+
+## Creating Animations
+
+Create a Python file with Manim scene classes:
 
 ```python
 from manim import *
@@ -94,131 +123,76 @@ class CircleToSquare(Scene):
         self.wait()
 ```
 
-### Running the Animation
+An AI assistant connected via MCP can then use the `write_file` tool to create the script and `run_manim` to render it.
 
-```bash
-# CLI mode with preview (-p), low quality (-ql)
-docker compose run manim -pql animations/example.py CircleToSquare
-
-# API mode
-curl -X POST "http://localhost:8000/run-manim?filepath=/manim/temp/circle_example.py&scene_name=CircleToSquare&quality=low_quality"
-```
-
-## 📂 Project Structure
+## Project Structure
 
 ```
-manim-docker-mcp/
-├── animations/           # Manim animation scripts
-├── app/                  # FastAPI application
-├── media/                # Generated animations (CLI mode)
-├── output/               # Generated animations (API mode)
-├── temp/                 # Temporary files
-├── uploads/              # Uploaded animation scripts
-├── Dockerfile            # Docker image definition
-├── docker-compose.yml    # Docker Compose configuration
-└── README.md             # This file
+manim-mcp/
+├── app/
+│   └── main.py               # MCP server (stdio transport)
+├── animations/                # Example animation scripts
+│   └── example.py
+├── output/                    # Rendered animation output (volume mount)
+├── Dockerfile                 # Container image definition
+├── docker-compose.yml         # Development compose config
+├── build.sh                   # Build script (applies metadata label)
+├── server-metadata.yaml       # MCP server metadata for Docker label
+└── README.md
 ```
 
-## 🔧 Configuration
+## Architecture
 
-### Quality Settings
+### Conversion from Web API to stdio MCP
 
-| Flag | Resolution | Frame Rate | Best For |
-|------|------------|------------|----------|
-| `-ql` | 480p | 15fps | Quick previews |
-| `-qm` | 720p | 30fps | General use |
-| `-qh` | 1080p | 60fps | Presentations |
-| `-qk` | 1440p | 60fps | Production videos |
+This project was originally built as a FastAPI web server exposing HTTP endpoints (`/list-files`, `/write-file`, `/run-manim`, `/download-file`). It has been fully converted to a **stdio-based MCP server** using the `mcp` Python SDK (`FastMCP`).
 
-### Other Useful Flags
+Key changes in the conversion:
 
-- `-p`: Preview the output file
-- `-t`: Transparent background
-- `--save_last_frame`: Render only the last frame
-- `-c COLOR`: Set background color
+- **Removed**: FastAPI, uvicorn, HTTP routing, port exposure, `/docs` endpoint, file download endpoint
+- **Added**: `FastMCP` server with `transport="stdio"`, Docker MCP metadata label
+- **Transport**: All communication happens over stdin/stdout using the MCP protocol (no network ports)
+- **Security**: Path traversal protection and directory allowlisting remain in place
+- **Docker integration**: The image self-labels with `io.docker.server.metadata` so it can be discovered and configured by Docker MCP toolkit catalogs
 
-## 🌐 API Documentation
+### Security
 
-### Core Endpoints
+The server restricts filesystem access to a set of allowed base directories (`/manim`, `/app`, `/media`, `/usr/local`, `/tmp`) and blocks path traversal attempts.
 
-#### List Files
-```http
-GET /list-files?directory=/manim
-```
-
-#### Write File
-```http
-POST /write-file?filepath=/manim/temp/example.py
-```
-
-#### Run Animation
-```http
-POST /run-manim?filepath=/manim/temp/example.py&scene_name=CircleToSquare
-```
-
-#### Download Animation
-```http
-GET /download-file?filepath=/media/videos/example/480p15/CircleToSquare.mp4
-```
-
-Full API documentation is available at the `/docs` endpoint.
-
-## 🤖 AI Assistant Integration (MCP)
-
-This project supports the [Model Context Protocol (MCP)](https://github.com/tadata-org/fastapi_mcp), enabling AI assistants to:
-
-1. Create Manim scripts based on natural language descriptions
-2. Run animations and provide download links
-3. Browse and manage generated media files
-
-Example MCP session:
-
-```
-User: Create an animation showing a circle morphing into a square
-AI: I'll create that for you...
-```
-
-## 🔍 Advanced Usage
+## Advanced Usage
 
 ### Custom LaTeX
 
-The container includes a minimal LaTeX installation. Custom LaTeX can be used in animations:
+The container includes a minimal LaTeX installation for mathematical typesetting:
 
 ```python
 formula = MathTex(r"\int_{a}^{b} f(x) \, dx = F(b) - F(a)")
 self.play(Write(formula))
 ```
 
-### Mounting Custom Directories
+### Development with docker-compose
 
-Modify the `docker-compose.yml` file to mount additional directories:
+The `docker-compose.yml` is provided for local development and testing:
 
-```yaml
-volumes:
-  - ./my_custom_dir:/manim/custom
+```bash
+docker compose build
+docker compose run manim-mcp
 ```
 
-## 🛠️ Troubleshooting
+It mounts `./animations`, `./output`, and `./media` into the container.
 
-### Common Issues
+## Troubleshooting
 
-- **Docker not running**: Make sure Docker daemon is running
+- **Docker not running**: Make sure the Docker daemon is running
 - **Permission errors**: The container needs write access to mounted volumes
-- **Missing media**: Check the correct output directory (media/ for CLI, output/ for API)
+- **Missing output**: Check the `output/` directory (mounted volume) for rendered files
+- **LaTeX errors**: Ensure your LaTeX syntax is valid; the container has a minimal TeX installation
 
-### Getting Help
-
-If you encounter issues:
-1. Check the [Manim documentation](https://docs.manim.community/)
-2. Search existing GitHub issues
-3. Create a new issue with details about your problem
-
-## 📜 License
+## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
-- [Manim Community](https://www.manim.community/) for the amazing animation engine
-- [FastAPI](https://fastapi.tiangolo.com/) for the web framework
-- [Model Context Protocol](https://github.com/tadata-org/fastapi_mcp) for AI integration
+- [Manim Community](https://www.manim.community/) for the animation engine
+- [Model Context Protocol](https://modelcontextprotocol.io/) for the AI integration standard
