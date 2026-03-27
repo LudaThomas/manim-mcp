@@ -1,6 +1,7 @@
 import os
 import sys
 import stat
+import math
 import datetime
 import subprocess
 import uuid
@@ -263,6 +264,244 @@ def read_file(filepath: str) -> dict:
         return {"error": f"Permission denied: Cannot read {filepath}"}
     except Exception as e:
         return {"error": f"Failed to read file: {str(e)}"}
+
+
+@mcp.tool()
+def render_latex(
+    expressions: list[str],
+    math_mode: bool = True,
+    text_only: bool = False,
+    color: str = "WHITE",
+    background_color: Optional[str] = None,
+    font_size: int = 48,
+    quality: str = "medium_quality",
+    format: str = "png",
+    transparent: bool = False,
+    arrangement: str = "vertical",
+    buff: float = 0.5,
+    template: Optional[str] = None,
+    additional_preamble: Optional[str] = None,
+) -> dict:
+    """Render LaTeX/MathTeX expressions directly as images without writing a full Manim scene.
+
+    This is a convenience tool that generates and renders a Manim scene from LaTeX expressions.
+    Use this for quickly rendering mathematical formulas, equations, or formatted text.
+
+    There are three rendering modes controlled by math_mode and text_only:
+
+    1. MathTex mode (math_mode=True, text_only=False) — default. Renders LaTeX math expressions
+       using MathTex. Requires dvisvgm to be installed in the container.
+       Example expressions: [r"E = mc^2", r"\\int_0^1 x^2 dx"]
+
+    2. Tex mode (math_mode=False, text_only=False) — renders LaTeX with mixed text and inline
+       math (use $...$ for math). Requires dvisvgm to be installed in the container.
+       Example expressions: [r"The area is $A = \\pi r^2$"]
+
+    3. Text mode (text_only=True) — uses Manim's Text() renderer (Pango/Cairo). Does NOT require
+       LaTeX or dvisvgm. No math typesetting, but always works. Use this as a fallback when
+       LaTeX rendering fails due to missing dvisvgm.
+       Example expressions: ["E = mc²", "Hello World"]
+
+    Args:
+        expressions: List of expression strings to render
+        math_mode: If True, use MathTex (math mode). If False, use Tex (text mode with inline math via $...$). Ignored when text_only=True.
+        text_only: If True, use Manim's Text() instead of MathTex/Tex. No LaTeX required — always works. No math typesetting.
+        color: Text color as a Manim color name (e.g., 'WHITE', 'BLUE', 'YELLOW') or hex (e.g., '#ff0000')
+        background_color: Background color. None uses Manim default (BLACK). Use hex or color name.
+        font_size: Font size for the text (default 48)
+        quality: Quality setting - low_quality (480p/15fps), medium_quality (720p/30fps), high_quality (1080p/60fps), production_quality (1440p/60fps)
+        format: Output format - 'png' (default, saves last frame) or 'mp4'/'gif' (animated write-on effect)
+        transparent: Render with transparent background (useful for overlays)
+        arrangement: How to arrange multiple expressions - 'vertical' (top to bottom), 'horizontal' (left to right), or 'grid'
+        buff: Spacing between expressions when multiple are provided
+        template: LaTeX template name if needed (e.g., 'TexFontTemplates' member). Ignored when text_only=True.
+        additional_preamble: Extra LaTeX preamble commands (e.g., r"\\usepackage{amssymb}"). Ignored when text_only=True.
+    """
+    if not expressions:
+        return {"error": "At least one expression is required"}
+
+    job_id = str(uuid.uuid4())
+    output_dir = f"/manim/output/{job_id}"
+    scene_file = f"/tmp/latex_{job_id}.py"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Determine which Manim class to use
+    if text_only:
+        tex_class = "Text"
+    elif math_mode:
+        tex_class = "MathTex"
+    else:
+        tex_class = "Tex"
+
+    # Escape expressions for embedding in Python string literals
+    escaped = []
+    for expr in expressions:
+        if text_only:
+            # For Text(), just escape quotes — no LaTeX backslash handling
+            escaped.append(expr.replace('\\', '\\\\').replace('"', '\\"'))
+        else:
+            escaped.append(expr.replace('\\', '\\\\').replace('"', '\\"'))
+
+    lines = [
+        "from manim import *",
+        "",
+    ]
+
+    # Add custom template/preamble if provided (LaTeX modes only)
+    if additional_preamble and not text_only:
+        lines.append(f'preamble = TexTemplate()')
+        lines.append(f'preamble.add_to_preamble(r"""{additional_preamble}""")')
+        lines.append("")
+
+    lines.append("class LatexScene(Scene):")
+    lines.append("    def construct(self):")
+
+    # Create each expression
+    tex_objects = []
+    for i, expr in enumerate(escaped):
+        var = f"tex_{i}"
+        tex_objects.append(var)
+
+        if text_only:
+            lines.append(f'        {var} = Text("{expr}", font_size={font_size})')
+        else:
+            template_arg = ", tex_template=preamble" if additional_preamble else ""
+            lines.append(f'        {var} = {tex_class}(r"{expr}", font_size={font_size}{template_arg})')
+
+        # Handle color - check if it's a hex color or a named color
+        if color.startswith('#'):
+            lines.append(f'        {var}.set_color("{color}")')
+        else:
+            lines.append(f'        {var}.set_color({color})')
+
+    # Arrange expressions
+    if len(tex_objects) > 1:
+        group_items = ", ".join(tex_objects)
+        lines.append(f"        group = VGroup({group_items})")
+        if arrangement == "horizontal":
+            lines.append(f"        group.arrange(RIGHT, buff={buff})")
+        elif arrangement == "grid":
+            # Auto grid: roughly square layout
+            cols = math.ceil(math.sqrt(len(tex_objects)))
+            lines.append(f"        group.arrange_in_grid(cols={cols}, buff={buff})")
+        else:  # vertical (default)
+            lines.append(f"        group.arrange(DOWN, buff={buff})")
+        lines.append("        group.move_to(ORIGIN)")
+        # Scale to fit if needed
+        lines.append("        if group.width > config.frame_width - 1:")
+        lines.append("            group.scale_to_fit_width(config.frame_width - 1)")
+        lines.append("        if group.height > config.frame_height - 1:")
+        lines.append("            group.scale_to_fit_height(config.frame_height - 1)")
+    else:
+        # Single expression - scale to fit
+        lines.append(f"        if {tex_objects[0]}.width > config.frame_width - 1:")
+        lines.append(f"            {tex_objects[0]}.scale_to_fit_width(config.frame_width - 1)")
+
+    # Determine if we animate or just show the last frame
+    is_static = (format == "png")
+
+    if is_static:
+        for var in tex_objects:
+            lines.append(f"        self.add({var})")
+    else:
+        if len(tex_objects) > 1:
+            lines.append("        self.play(Write(group))")
+        else:
+            lines.append(f"        self.play(Write({tex_objects[0]}))")
+        lines.append("        self.wait(1)")
+
+    scene_code = "\n".join(lines) + "\n"
+
+    try:
+        with open(scene_file, 'w') as f:
+            f.write(scene_code)
+    except Exception as e:
+        return {"error": f"Failed to write scene file: {str(e)}"}
+
+    # Build manim command
+    cmd = ["python3", "-m", "manim"]
+
+    quality_map = {
+        "low_quality": "-ql",
+        "medium_quality": "-qm",
+        "high_quality": "-qh",
+        "production_quality": "-qk",
+    }
+    if quality in quality_map:
+        cmd.append(quality_map[quality])
+
+    if transparent:
+        cmd.append("-t")
+
+    if is_static:
+        cmd.append("--save_last_frame")
+
+    if format and format != "png":
+        cmd.extend(["--format", format])
+
+    if background_color:
+        cmd.extend(["-c", background_color])
+
+    cmd.extend(["--output_file", output_dir])
+    cmd.append(scene_file)
+    cmd.append("LatexScene")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        files = []
+        file_info = []
+
+        if os.path.exists(output_dir):
+            dir_files = [f for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
+            for file in dir_files:
+                file_path = os.path.join(output_dir, file)
+                info = get_file_info(file_path, output_dir)
+                file_info.append(info)
+                files.append(file)
+
+        parent_output_dir = "/manim/output"
+        if os.path.exists(parent_output_dir):
+            parent_files = [f for f in os.listdir(parent_output_dir)
+                          if os.path.isfile(os.path.join(parent_output_dir, f)) and job_id in f]
+            for file in parent_files:
+                file_path = os.path.join(parent_output_dir, file)
+                info = get_file_info(file_path, parent_output_dir)
+                file_info.append(info)
+                files.append(file)
+
+        return {
+            "job_id": job_id,
+            "status": "success",
+            "mode": "text" if text_only else ("mathtex" if math_mode else "tex"),
+            "command": " ".join(cmd),
+            "output": result.stdout,
+            "scene_code": scene_code,
+            "files": file_info,
+            "output_directory": output_dir,
+        }
+
+    except subprocess.CalledProcessError as e:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "mode": "text" if text_only else ("mathtex" if math_mode else "tex"),
+            "command": " ".join(cmd),
+            "scene_code": scene_code,
+            "error": e.stderr,
+            "returncode": e.returncode,
+        }
+    finally:
+        # Clean up temp scene file
+        try:
+            os.remove(scene_file)
+        except OSError:
+            pass
 
 
 @mcp.tool()

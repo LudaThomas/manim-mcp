@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     texlive-fonts-extra \
     texlive-science \
     texlive-xetex \
+    # dvisvgm is required by Manim to convert LaTeX DVI output to SVG
+    dvisvgm \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir pycairo manim "mcp[cli]" \
     && python3 -c "import manim; print(f'Manim {manim.__version__} installed successfully')" \
