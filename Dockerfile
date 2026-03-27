@@ -44,17 +44,11 @@ RUN pip install --upgrade pip \
     && pip install manim \
     && python3 -c "import manim; print(f'Manim {manim.__version__} installed successfully')"
 
-# Install FastAPI, uvicorn and fastapi-mcp for API service
-RUN pip install fastapi uvicorn pydantic python-multipart fastapi-mcp>=0.3.0
+# Install MCP SDK for stdio-based MCP server
+RUN pip install "mcp[cli]"
 
-# Copy the API application
+# Copy the application
 COPY ./app /manim/app
 
-# Expose the API port
-EXPOSE 8000
-
-# Change entrypoint to run the FastAPI app
-ENTRYPOINT ["uvicorn", "app.main:app", "--host", "0.0.0.0"]
-
-# Default command
-CMD ["--port", "8000"] 
+# Run the MCP server via stdio
+ENTRYPOINT ["python3", "/manim/app/main.py"] 

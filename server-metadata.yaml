@@ -1,0 +1,20 @@
+name: manim-mcp
+description: "MCP server for creating mathematical animations with Manim inside Docker"
+command: ["python3", "/manim/app/main.py"]
+volumes:
+  - "{{manim-mcp.output-dir}}:/manim/output"
+  - "{{manim-mcp.animations-dir}}:/manim/animations"
+config:
+  - name: manim-mcp
+    type: object
+    description: "Manim MCP server configuration"
+    properties:
+      output-dir:
+        type: string
+        description: "Local directory for rendered animation output"
+      animations-dir:
+        type: string
+        description: "Local directory containing Manim animation scripts"
+    required:
+      - output-dir
+      - animations-dir
