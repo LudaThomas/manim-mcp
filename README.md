@@ -194,5 +194,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Acknowledgements
 
+- [wstcpyt/manim-mcp](https://github.com/wstcpyt/manim-mcp) — the original project this was forked from
 - [Manim Community](https://www.manim.community/) for the animation engine
 - [Model Context Protocol](https://modelcontextprotocol.io/) for the AI integration standard
