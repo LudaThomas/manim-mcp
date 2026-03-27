@@ -27,7 +27,7 @@ This project provides:
 Clone the repository and build the image with the embedded MCP metadata label:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/manim-mcp.git
+git clone https://github.com/LudaThomas/manim-mcp.git
 cd manim-mcp
 docker build --label "io.docker.server.metadata=$(cat server-metadata.yaml)" -t manim-mcp:latest .
 ```
